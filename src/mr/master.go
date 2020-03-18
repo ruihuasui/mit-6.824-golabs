@@ -20,6 +20,7 @@ type Master struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
+	log.Println("server: rpc")
 	reply.Y = args.X + 1
 	return nil
 }
