@@ -42,12 +42,13 @@ const (
 )
 
 type TaskData struct {
-	ID        string
-	State     TaskState
-	Type      TaskType
-	CountDown int
-	NReduce   int
-	Filename  string
+	ID          string
+	State       TaskState
+	Type        TaskType
+	CountDown   int
+	NReduce     int
+	Filename    string
+	isCancelled bool
 }
 
 // func (t MapTask) Compare(other MapTask) int {

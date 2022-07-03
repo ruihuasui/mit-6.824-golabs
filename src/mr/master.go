@@ -58,19 +58,18 @@ type Master struct {
 	IntermediateFileList SafeList[string]
 	ReduceTaskList       SafeList[*TaskData]
 	OutputList           SafeList[string]
-	cancelledWorkers     []string
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
 func (m *Master) cancelTimeoutWorkers() {
 	tasks := append(m.MapTaskList.list, m.ReduceTaskList.list...)
-	for _, mt := range tasks {
-		if mt.State != Finished {
-			mt.CountDown--
-			if mt.CountDown <= 0 {
+	for _, t := range tasks {
+		if t.State != Finished {
+			t.CountDown--
+			if t.CountDown <= 0 {
 				// cancel task worker
-				m.cancelledWorkers = append(m.cancelledWorkers, mt.ID)
+				t.isCancelled = true
 			}
 		}
 	}
@@ -103,7 +102,7 @@ func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	}
 
 	// init a task
-	task := &TaskData{args.ID, Pending, taskType, 10, m.NReduce, filename}
+	task := &TaskData{args.ID, Pending, taskType, 10, m.NReduce, filename, false}
 	// record the task
 	if taskType == MapTask {
 		m.MapTaskList.append(task)
@@ -131,17 +130,15 @@ func (m *Master) FinishTask(args *FinishTaskArgs, reply *FinishTaskReply) error 
 		return nil
 	}
 	// filter out cancelled workers
-	for _, workerID := range m.cancelledWorkers {
-		if workerID == args.Task.ID {
-			reply.Status = Cancelled
-			return nil
-		}
+	if args.Task.isCancelled {
+		reply.Status = Cancelled
+		return nil
 	}
 
 	// append output file
 	if args.Task.Type == MapTask {
 		m.IntermediateFileList.append(args.OutputFilename)
-	} else {
+	} else { // args.Task.Type == ReduceTask
 		m.OutputList.append(args.OutputFilename)
 	}
 	// mark task as finished
@@ -210,8 +207,6 @@ func MakeMaster(files []string, nReduce int) *Master {
 
 	m.ReduceTaskList = SafeList[*TaskData]{}
 	m.OutputList = SafeList[string]{}
-
-	m.cancelledWorkers = []string{}
 
 	m.server()
 	return &m
