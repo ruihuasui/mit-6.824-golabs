@@ -47,7 +47,7 @@ type TaskData struct {
 	Type        TaskType
 	CountDown   int
 	NReduce     int
-	Filename    string
+	Filenames   []string
 	isCancelled bool
 }
 
@@ -72,13 +72,14 @@ type GetTaskArgs struct {
 }
 
 type GetTaskReply struct {
-	Status ReplyStatus
-	Task   *TaskData
+	Status    ReplyStatus
+	Task      *TaskData
+	NthReduce int
 }
 
 type FinishTaskArgs struct {
-	Task           *TaskData
-	OutputFilename string
+	Task        *TaskData
+	OutputFiles []string
 }
 
 type FinishTaskReply struct {

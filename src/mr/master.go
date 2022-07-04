@@ -1,11 +1,13 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,10 +36,10 @@ func (sf *SafeList[T]) removeAt(index int) T {
 	return elem
 }
 
-func (sf *SafeList[T]) append(elem T) {
+func (sf *SafeList[T]) append(elem ...T) {
 	sf.m.Lock()
 	defer sf.m.Unlock()
-	sf.list = append(sf.list, elem)
+	sf.list = append(sf.list, elem...)
 }
 
 func (sf *SafeList[T]) all(allf func(T) bool) bool {
@@ -49,10 +51,21 @@ func (sf *SafeList[T]) all(allf func(T) bool) bool {
 	return true
 }
 
+func (sf *SafeList[T]) filter(filterf func(T) bool) []T {
+	slice := []T{}
+	for _, el := range sf.list {
+		if filterf(el) {
+			slice = append(slice, el)
+		}
+	}
+	return slice
+}
+
 type Master struct {
 	// Your definitions here.
 	mutex                sync.Mutex
 	NReduce              int
+	CurrReduceNum        int
 	FileList             SafeList[string]
 	MapTaskList          SafeList[*TaskData]
 	IntermediateFileList SafeList[string]
@@ -61,6 +74,10 @@ type Master struct {
 }
 
 // Your code here -- RPC handlers for the worker to call.
+
+func isTaskDone(t *TaskData) bool {
+	return t.State == Finished
+}
 
 func (m *Master) cancelTimeoutWorkers() {
 	tasks := append(m.MapTaskList.list, m.ReduceTaskList.list...)
@@ -85,14 +102,21 @@ func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	}
 
 	// get filename
-	filename := m.FileList.pop()
+	files := []string{}
 	taskType := MapTask
-	if filename == "" { // getting map tasks
+	if filename := m.FileList.pop(); filename == "" { // is reduce tasks
 		taskType = ReduceTask
-		filename = m.IntermediateFileList.pop()
+		// find all intermediate files of nth reduce
+		files = m.IntermediateFileList.filter(func(fn string) bool {
+			return strings.HasSuffix(fn, fmt.Sprintf("-%d", m.CurrReduceNum))
+		})
+		reply.NthReduce = m.CurrReduceNum
+		m.CurrReduceNum++
+	} else {
+		files = append(files, filename)
 	}
 
-	if filename == "" { // no more tasks to assign
+	if len(files) == 0 { // no tasks to assign
 		if m.Done() {
 			reply.Status = AllDone
 		} else {
@@ -102,7 +126,7 @@ func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	}
 
 	// init a task
-	task := &TaskData{args.ID, Pending, taskType, 10, m.NReduce, filename, false}
+	task := &TaskData{args.ID, Pending, taskType, 10, m.NReduce, files, false}
 	// record the task
 	if taskType == MapTask {
 		m.MapTaskList.append(task)
@@ -113,7 +137,7 @@ func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	reply.Status = OK
 	reply.Task = task
 
-	// sleep 1 second
+	// assign a task every 1 second
 	time.Sleep(time.Second)
 	// cancel timeout workers
 	m.cancelTimeoutWorkers()
@@ -137,9 +161,9 @@ func (m *Master) FinishTask(args *FinishTaskArgs, reply *FinishTaskReply) error 
 
 	// append output file
 	if args.Task.Type == MapTask {
-		m.IntermediateFileList.append(args.OutputFilename)
+		m.IntermediateFileList.append(args.OutputFiles...)
 	} else { // args.Task.Type == ReduceTask
-		m.OutputList.append(args.OutputFilename)
+		m.OutputList.append(args.OutputFiles...)
 	}
 	// mark task as finished
 	args.Task.State = Finished
@@ -182,12 +206,11 @@ func (m *Master) server() {
 //
 func (m *Master) Done() bool {
 	// Your code here.
-	taskDone := func(t *TaskData) bool { return t.State == Finished }
 	return m.FileList.length() == 0 &&
 		m.MapTaskList.length() > 0 &&
-		m.MapTaskList.all(taskDone) &&
+		m.MapTaskList.all(isTaskDone) &&
 		m.ReduceTaskList.length() > 0 &&
-		m.ReduceTaskList.all(taskDone)
+		m.ReduceTaskList.all(isTaskDone)
 }
 
 //
