@@ -30,7 +30,7 @@ type TaskState int64
 
 const (
 	Pending TaskState = iota
-	InProgress
+	Running
 	Finished
 )
 

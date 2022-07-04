@@ -39,6 +39,7 @@ func readKVFromJSONFile(filename string) []KeyValue {
 }
 
 func mapWorker(t *TaskData, mapf func(string, string) []KeyValue) {
+	t.State = Running
 	// read & map input files
 	ifilemap := make(map[string][]KeyValue)
 	for _, fn := range t.Filenames {
@@ -72,6 +73,7 @@ func mapWorker(t *TaskData, mapf func(string, string) []KeyValue) {
 }
 
 func reduceWorker(t *TaskData, nthReduce int, reducef func(string, []string) string) {
+	t.State = Running
 	// read kvs from intermediate files & group by key
 	kvmap := make(map[string][]string)
 	for _, fn := range t.Filenames {

@@ -87,6 +87,7 @@ func (m *Master) cancelTimeoutWorkers() {
 			if t.CountDown <= 0 {
 				// cancel task worker
 				t.isCancelled = true
+				// re-schedule the task: put task files to the pending file list
 				if t.Type == MapTask {
 					m.FileList.append(t.Filenames...)
 				} else {
