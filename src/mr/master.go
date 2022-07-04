@@ -87,6 +87,11 @@ func (m *Master) cancelTimeoutWorkers() {
 			if t.CountDown <= 0 {
 				// cancel task worker
 				t.isCancelled = true
+				if t.Type == MapTask {
+					m.FileList.append(t.Filenames...)
+				} else {
+					m.IntermediateFileList.append(t.Filenames...)
+				}
 			}
 		}
 	}
