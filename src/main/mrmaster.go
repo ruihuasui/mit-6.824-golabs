@@ -11,10 +11,9 @@ package main
 
 import (
 	"fmt"
+	"mit6824/mr"
 	"os"
 	"time"
-
-	"../mr"
 )
 
 func main() {
