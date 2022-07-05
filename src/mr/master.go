@@ -36,10 +36,10 @@ func (sf *SafeList[T]) removeAt(index int) T {
 	return elem
 }
 
-func (sf *SafeList[T]) append(elem ...T) {
+func (sf *SafeList[T]) append(elems ...T) {
 	sf.m.Lock()
 	defer sf.m.Unlock()
-	sf.list = append(sf.list, elem...)
+	sf.list = append(sf.list, elems...)
 }
 
 func (sf *SafeList[T]) all(allf func(T) bool) bool {
@@ -75,27 +75,23 @@ type Master struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
-func isTaskDone(t *TaskData) bool {
-	return t.State == Finished
-}
-
 func (m *Master) cancelTimeoutWorkers() {
-	tasks := append(m.MapTaskList.list, m.ReduceTaskList.list...)
-	for _, t := range tasks {
-		if t.State != Finished {
-			t.CountDown--
-			if t.CountDown <= 0 {
-				// cancel task worker
-				t.isCancelled = true
-				// re-schedule the task: put task files to the pending file list
-				if t.Type == MapTask {
-					m.FileList.append(t.Filenames...)
-				} else {
-					m.IntermediateFileList.append(t.Filenames...)
-				}
-			}
-		}
-	}
+	// tasks := append(m.MapTaskList.list, m.ReduceTaskList.list...)
+	// for _, t := range tasks {
+	// 	if t.State != Finished {
+	// 		t.CountDown--
+	// 		if t.CountDown <= 0 {
+	// 			// cancel task worker
+	// 			t.isCancelled = true
+	// 			// re-schedule the task: put task files to the pending file list
+	// 			if t.Type == MapTask {
+	// 				m.FileList.append(t.Filenames...)
+	// 			} else {
+	// 				m.IntermediateFileList.append(t.Filenames...)
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
@@ -111,13 +107,15 @@ func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	files := []string{}
 	taskType := MapTask
 	if filename := m.FileList.pop(); filename == "" { // is reduce tasks
-		taskType = ReduceTask
-		// find all intermediate files of nth reduce
-		files = m.IntermediateFileList.filter(func(fn string) bool {
-			return strings.HasSuffix(fn, fmt.Sprintf("-%d", m.CurrReduceNum))
-		})
-		reply.NthReduce = m.CurrReduceNum
-		m.CurrReduceNum++
+		if m.CurrReduceNum < m.NReduce {
+			taskType = ReduceTask
+			// find all intermediate files of nth reduce
+			files = m.IntermediateFileList.filter(func(fn string) bool {
+				return strings.HasSuffix(fn, fmt.Sprintf("-%d", m.CurrReduceNum))
+			})
+			reply.NthReduce = m.CurrReduceNum
+			m.CurrReduceNum++
+		}
 	} else {
 		files = append(files, filename)
 	}
@@ -143,6 +141,10 @@ func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	reply.Status = OK
 	reply.Task = task
 
+	fmt.Println("GetTask: request from:", args.ID, "type:", taskType)
+	fmt.Println("filelist:", m.FileList.length())
+	fmt.Println("interfilelist:", m.IntermediateFileList.length())
+
 	// assign a task every 1 second
 	time.Sleep(time.Second)
 	// cancel timeout workers
@@ -159,6 +161,7 @@ func (m *Master) FinishTask(args *FinishTaskArgs, reply *FinishTaskReply) error 
 		reply.Status = BadRequest
 		return nil
 	}
+	fmt.Println("FinishTask: request from", args.Task)
 	// filter out cancelled workers
 	if args.Task.isCancelled {
 		reply.Status = Cancelled
@@ -212,11 +215,8 @@ func (m *Master) server() {
 //
 func (m *Master) Done() bool {
 	// Your code here.
-	return m.FileList.length() == 0 &&
-		m.MapTaskList.length() > 0 &&
-		m.MapTaskList.all(isTaskDone) &&
-		m.ReduceTaskList.length() > 0 &&
-		m.ReduceTaskList.all(isTaskDone)
+	// done if all the output files are generated
+	return m.OutputList.length() == m.NReduce
 }
 
 //
@@ -238,5 +238,8 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.OutputList = SafeList[string]{}
 
 	m.server()
+	fmt.Println("Master Server Started!")
+	fmt.Println("NReduce:", nReduce)
+	fmt.Println("Input files:", len(files), files)
 	return &m
 }

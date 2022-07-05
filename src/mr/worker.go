@@ -1,12 +1,16 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
 	"os"
 )
+
+const WorkerProductDir = "product"
 
 //
 // Map functions return a slice of KeyValue.
@@ -26,20 +30,68 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func formatFname(filename string) string {
+	return fmt.Sprintf("%s/%s", WorkerProductDir, filename)
+}
+
 func readFile(filename string) string {
-	return ""
+	// open file
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+	}
+	defer file.Close()
+	// read content
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", filename)
+	}
+	return string(content)
 }
 
 func storeKVToJSONFile(filename string, kvs []KeyValue) bool {
+	// open file
+	filename = formatFname(filename)
+	file, err := os.Create(filename)
+	if err != nil {
+		log.Fatalf("cannot create %v", filename)
+	}
+	defer file.Close()
+	// encode kvs to json file
+	enc := json.NewEncoder(file)
+	for _, kv := range kvs {
+		if err := enc.Encode(&kv); err != nil {
+			log.Fatal("failed encode kv:", kv)
+			return false
+		}
+	}
 	return true
 }
 
 func readKVFromJSONFile(filename string) []KeyValue {
-	return []KeyValue{}
+	// open file
+	filename = formatFname(filename)
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+	}
+	defer file.Close()
+	// decode kvs from json file
+	dec := json.NewDecoder(file)
+	kvs := []KeyValue{}
+	for {
+		var kv KeyValue
+		if err := dec.Decode(&kv); err != nil {
+			break
+		}
+		kvs = append(kvs, kv)
+	}
+	return kvs
 }
 
 func mapWorker(t *TaskData, mapf func(string, string) []KeyValue) {
 	t.State = Running
+	fmt.Println("MapWorker task:", *t)
 	// read & map input files
 	ifilemap := make(map[string][]KeyValue)
 	for _, fn := range t.Filenames {
@@ -74,6 +126,7 @@ func mapWorker(t *TaskData, mapf func(string, string) []KeyValue) {
 
 func reduceWorker(t *TaskData, nthReduce int, reducef func(string, []string) string) {
 	t.State = Running
+	fmt.Println("ReduceWorker task:", *t)
 	// read kvs from intermediate files & group by key
 	kvmap := make(map[string][]string)
 	for _, fn := range t.Filenames {
@@ -84,7 +137,7 @@ func reduceWorker(t *TaskData, nthReduce int, reducef func(string, []string) str
 	}
 
 	// call reducef for each key & write to output files
-	outfn := fmt.Sprintf("mr-out-%d", nthReduce)
+	outfn := formatFname(fmt.Sprintf("mr-out-%d", nthReduce))
 	outf, _ := os.Create(outfn)
 	defer outf.Close()
 	for key, values := range kvmap {
@@ -111,10 +164,14 @@ func reduceWorker(t *TaskData, nthReduce int, reducef func(string, []string) str
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
+	os.RemoveAll(WorkerProductDir)
+	os.Mkdir(WorkerProductDir, os.ModeAppend)
+
 	// Your worker implementation here.
 	workerCount := 0
 	for {
 		workerID := fmt.Sprint(workerCount)
+		workerCount++
 		args := GetTaskArgs{ID: workerID}
 		reply := GetTaskReply{}
 		success := call("Master.GetTask", &args, &reply)
